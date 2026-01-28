@@ -1,0 +1,584 @@
+---
+title: "The Digital Divide: Access, Opportunity, and the Path Forward"
+author: "Sowmiya Kumar - s4040536"
+date: "2025-06-11"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    theme: flatly
+runtime: shiny
+---
+
+```{r setup, warnings=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(flexdashboard)
+library(tidyverse)
+library(janitor)
+library(plotly)
+library(dplyr)
+library(readr)
+library(shiny)
+library(countrycode)
+library(DT)
+```
+
+```{r load-and-clean, include=FALSE, message=FALSE, warning=FALSE}
+# GDP Per capita
+gdp <- read.csv("GDP_Per_capita.csv", skip = 4) %>%
+  clean_names()
+
+gdp_long <- gdp %>%
+  pivot_longer(
+    cols = starts_with("x"),
+    names_to = "year",
+    names_prefix = "x",
+    values_to = "gdp_per_capita"
+  ) %>%
+  mutate(
+    year = as.numeric(year),
+    gdp_per_capita = as.numeric(gdp_per_capita)
+  ) %>%
+  drop_na()
+
+# Load Internet Usage data and clean column names
+internet <- read.csv("Individualas_using_internet.csv", skip = 4) %>%
+  clean_names()
+
+internet_long <- internet %>%
+  pivot_longer(
+    cols = starts_with("x"),
+    names_to = "year",
+    names_prefix = "x",
+    values_to = "internet_usage_percent"
+  ) %>%
+  mutate(
+    year = as.numeric(year),
+    internet_usage_percent = as.numeric(internet_usage_percent)
+  ) %>%
+  drop_na()
+
+# Literacy rate 
+literacy <- read.csv("literacy_rate_age_ab_15.csv", skip = 4) %>%
+  clean_names()
+
+literacy_long <- literacy %>%
+  pivot_longer(
+    cols = starts_with("x"),
+    names_to = "year",
+    names_prefix = "x",
+    values_to = "literacy_rate"
+  ) %>%
+  mutate(
+    year = as.numeric(year),
+    literacy_rate = as.numeric(literacy_rate)
+  ) %>%
+  drop_na()
+
+# Tertiary education enrollment
+tertiary <- read.csv("tertiary_ed_enrollment.csv", skip = 4) %>%
+  clean_names()
+
+tertiary_long <- tertiary %>%
+  pivot_longer(
+    cols = starts_with("x"),
+    names_to = "year",
+    names_prefix = "x",
+    values_to = "tertiary_enrollment"
+  ) %>%
+  mutate(
+    year = as.numeric(year),
+    tertiary_enrollment = as.numeric(tertiary_enrollment)
+  ) %>%
+  drop_na()
+
+# Employment to population ratio
+employment <- read.csv("employment_to_pop_ratio.csv", skip = 4) %>%
+  clean_names()
+
+employment_long <- employment %>%
+  pivot_longer(
+    cols = starts_with("x"),
+    names_to = "year",
+    names_prefix = "x",
+    values_to = "employment_ratio"
+  ) %>%
+  mutate(
+    year = as.numeric(year),
+    employment_ratio = as.numeric(employment_ratio)
+  ) %>%
+  drop_na()
+
+# Income level data
+income_level_df <- read.csv("world-bank-income-groups.csv") %>% 
+  clean_names() %>%
+  rename(
+    country_name = entity,
+    income_level = world_bank_s_income_classification
+  ) %>%
+  filter(!is.na(income_level))
+
+# Join income level data
+internet_long  <- left_join(internet_long, income_level_df, by = c("country_name", "year"))
+literacy_long  <- left_join(literacy_long, income_level_df, by = c("country_name", "year"))
+employment_long <- left_join(employment_long, income_level_df, by = c("country_name", "year"))
+tertiary_long  <- left_join(tertiary_long, income_level_df, by = c("country_name", "year"))
+gdp_long <- left_join(gdp_long, income_level_df, by = c("country_name", "year"))
+
+# Add regions
+gdp_long$region <- countrycode::countrycode(gdp_long$country_name, origin = "country.name", destination = "region")
+internet_long$region <- countrycode::countrycode(internet_long$country_name, origin = "country.name", destination = "region")
+literacy_long$region <- countrycode::countrycode(literacy_long$country_name, origin = "country.name", destination = "region")
+employment_long$region <- countrycode::countrycode(employment_long$country_name, origin = "country.name", destination = "region")
+tertiary_long$region <- countrycode::countrycode(tertiary_long$country_name, origin = "country.name", destination = "region")
+```
+
+# The Digital Divide Reality {data-orientation=columns}
+## Inputs {.sidebar data-width=120}
+```{r sidebar_year_input}
+selectInput("year_tab1", "Select Year", 
+            choices = sort(unique(internet_long$year[internet_long$year >= 2010])), 
+            selected = 2022)
+
+hr()
+div(style = "font-size: 12px; color: #666;",
+    h5("Impact Stories:", style = "margin-bottom: 8px;"),
+    p("• India’s BharatNet has connected over 218,000 villages with broadband, reducing the rural-urban gap", style = "margin-bottom: 4px;"),
+    p("• Sub-Saharan Africa remains the world’s least connected region, with only ~30% internet access", style = "margin-bottom: 4px;"),
+    p("• Norway targets 100 Mbps access for all citizens by 2025, ensuring total digital inclusion", style = "margin-bottom: 4px;")
+)
+```
+
+## Column 1 {data-width=500}
+
+### Global Internet Penetration: The Persistent Divide {data-height=500}
+```{r internet_rate_enhanced}
+renderPlotly({
+  joined_data <- full_join(gdp_long, internet_long, by = c("country_name", "year", "region", "income_level"))
+  filtered_map <- joined_data %>% 
+    filter(year == input$year_tab1) %>%
+    mutate(
+      digital_category = case_when(
+        internet_usage_percent >= 80 ~ "Digital Leaders (80%+)",
+        internet_usage_percent >= 50 ~ "Digital Adopters (50-79%)",
+        internet_usage_percent >= 20 ~ "Emerging Digital (20-49%)",
+        internet_usage_percent < 20 ~ "Digital Excluded (<20%)",
+        TRUE ~ "No Data"
+      )
+    )
+  
+  plot_geo(filtered_map) %>%
+    add_trace(
+      locations = ~countrycode::countrycode(country_name, origin = "country.name", destination = "iso3c"),
+      z = ~internet_usage_percent,
+      text = ~paste0("<b>", country_name, "</b><br>",
+                    "Internet Access: ", round(internet_usage_percent, 1), "%<br>",
+                    "Category: ", digital_category, "<br>",
+                    "Income Level: ", income_level),
+      colorscale = list(
+        c(0, "#d73027"),      # Red for low
+        c(0.25, "#fc8d59"),   # Orange 
+        c(0.5, "#fee08b"),    # Yellow
+        c(0.75, "#91bfdb"),   # Light blue
+        c(1, "#4575b4")       # Dark blue for high
+      ),
+      marker = list(line = list(width = 0.3, color = "white")),
+      colorbar = list(
+        title = "Internet<br>Access (%)", 
+        titleside = "right",
+        tickvals = c(0, 25, 50, 75, 100),
+        ticktext = c("0%", "25%", "50%", "75%", "100%")
+      ),
+      hovertemplate = "%{text}<extra></extra>"
+    ) %>%
+    layout(
+      title = list(
+        text = paste0("<b>Global Internet Access: The Digital Divide in ", input$year_tab1, "</b><br>",
+                     "<span style='font-size:12px'>Nearly 3 billion people remain digitally excluded</span>"),
+        font = list(size = 16),
+        x = 0.5
+      ),
+      geo = list(
+        showframe = FALSE, 
+        projection = list(type = 'natural earth'),
+        bgcolor = "rgba(0,0,0,0)"
+      ),
+      margin = list(l = 0, r = 0, t = 60, b = 0),
+      annotations = list(
+        list(
+         text = paste0("Note: Data for some countries is unavailable or unreported for 2024"),
+          showarrow = FALSE,
+          xref = "paper", yref = "paper",
+          x = 0.5, y = -0.1,
+          font = list(size = 10, color = "#666")
+        )
+      )
+    )
+})
+```
+
+
+### Digital Extremes: Who’s Connected, Who’s Left Behind? {data-height=500,data-width=500}
+```{r top_bottom_enhanced}
+renderPlotly({
+  joined_data <- full_join(gdp_long, internet_long, by = c("country_name", "year", "region", "income_level"))
+  
+  bar_data <- joined_data %>%
+    filter(year == input$year_tab1) %>%
+    filter(!is.na(internet_usage_percent)) %>%
+    arrange(desc(internet_usage_percent))
+  
+  top5 <- bar_data %>% slice_head(n = 6) %>% mutate(group = "Digital Champions")
+  bottom5 <- bar_data %>% slice_tail(n = 6) %>% mutate(group = "Digital Excluded")
+  
+  top_bottom <- bind_rows(top5, bottom5) %>%
+    mutate(
+      color_val = ifelse(group == "Digital Champions", internet_usage_percent, -internet_usage_percent),
+      display_val = internet_usage_percent
+    )
+  
+  plot_ly(
+    top_bottom,
+    x = ~color_val,
+    y = ~reorder(country_name, color_val),
+    color = ~group,
+    colors = c("Digital Champions" = "#2E8B57", "Digital Excluded" = "#DC143C"),
+    type = "bar",
+    orientation = "h",
+    text = ~paste0(round(display_val, 1), "%"),
+    textposition = "outside",
+    textfont = list(size = 11, color = "#333"),
+    hovertemplate = paste0("<b>%{y}</b><br>",
+                          "Internet Access: %{text}<br>",
+                          "Income Level: %{customdata}<br>",
+                          "<extra></extra>"),
+    customdata = ~income_level
+  ) %>%
+    layout(
+      title = list(
+        text = paste0("<b>Digital Champions vs Digital Excluded</b><br>",
+                     "<span style='font-size:12px'>The 95+ percentage point gap tells a story of inequality</span>"),
+        font = list(size = 14)
+      ),
+      xaxis = list(
+        title = "",
+        showticklabels = FALSE,
+        showgrid = FALSE,
+        zeroline = TRUE,
+        zerolinecolor = "#666",
+        zerolinewidth = 1
+      ),
+      yaxis = list(title = "", list(size = 9), position = 0, side = "left", standoff = 2),
+      showlegend = TRUE,
+      legend = list(x = 0.7, y = 0.15),
+      margin = list(l = 100, r = 40, t = 60, b = 40)
+      
+    )
+})
+```
+
+## Column 2 {data-width=500}
+### Regional Progress: Closing or Widening the Gap? {data-width=500 data-height=450}
+```{r regional_progress}
+renderPlotly({
+  joined_data <- full_join(gdp_long, internet_long, by = c("country_name", "year", "region", "income_level"))
+  
+  # Calculate regional trends over time
+  regional_trends <- joined_data %>%
+    filter(!is.na(internet_usage_percent), !is.na(region)) %>%
+    filter(year >= 2010, year <= as.numeric(input$year_tab1)) %>%
+    group_by(region, year) %>%
+    summarise(
+      avg_internet = mean(internet_usage_percent, na.rm = TRUE),
+      countries = n(),
+      .groups = 'drop'
+    )
+  
+  # Calculate growth rates
+  growth_data <- regional_trends %>%
+    group_by(region) %>%
+    arrange(year) %>%
+    summarise(
+      start_rate = first(avg_internet),
+      end_rate = last(avg_internet),
+      growth_rate = ((last(avg_internet) - first(avg_internet)) / first(avg_internet)) * 100,
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(end_rate))
+  
+  colors <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2")
+  
+  p <- plot_ly()
+  
+  for(i in 1:nrow(growth_data)) {
+    region_data <- regional_trends %>% filter(region == growth_data$region[i])
+    
+    p <- p %>% add_trace(
+      data = region_data,
+      x = ~year,
+      y = ~avg_internet,
+      type = "scatter",
+      mode = "lines+markers",
+      name = ~paste0(region, " (", sprintf("%+.0f%%", growth_data$growth_rate[i]), ")"),
+      line = list(width = 3, color = colors[i]),
+      marker = list(size = 6, color = colors[i]),
+      hovertemplate = paste0("<b>%{fullData.name}</b><br>",
+                            "Year: %{x}<br>",
+                            "Internet Access: %{y:.1f}%<br>",
+                            "<extra></extra>")
+    )
+  }
+  
+  # Add COVID annotation
+  p <- p %>% 
+    add_annotations(
+      x = 2020, y = 85,
+      text = "COVID-19<br>Acceleration",
+      showarrow = TRUE,
+      arrowhead = 2,
+      arrowsize = 1,
+      arrowwidth = 2,
+      arrowcolor = "#666",
+      ax = 20, ay = -30,
+      font = list(size = 10, color = "#666")
+    ) %>%
+    layout(
+  title = list(
+    text = paste0("<b>Regional Digital Progress: 2010-", input$year_tab1, "</b><br>",
+                  "<span style='font-size:12px'>Growth rates in parentheses show which regions are catching up</span>"),
+    font = list(size = 14),
+    x = 0.5,
+    xanchor = "center"
+  ),
+  xaxis = list(title = "Year", dtick = 2),
+  yaxis = list(title = "Average Internet Access (%)", range = c(0, 110)),
+  hovermode = "x unified",
+  legend = list(
+    orientation = "h",
+    x = 0.5,
+    y = 1.08,  # slightly lower than before
+    xanchor = "center",
+    font = list(size = 10),
+    traceorder = "normal"
+  ),
+  margin = list(l = 60, r = 30, t = 100, b = 50)  # reduce top margin from 150 → 100
+)
+
+  p
+})
+```
+
+
+# Digital Access=Economic Opportunity{data-orientation=columns}
+
+## Column 1 {data-height=100, data-width=170}
+
+```{r sidebar_tab2_inputs}
+selectInput("year_tab2", "Select Year", 
+            choices = sort(unique(literacy_long$year[literacy_long$year >= 2010])), 
+            selected = 2020,
+            width = "100%")
+hr()
+div(style = "font-size: 12px; color: #666;",
+    h5("Impact Stories:", style = "margin-bottom: 8px;"),
+    p("• Rwanda’s Smart Rwanda policy boosted internet access and increased job creation via digital services", style = "margin-bottom: 4px;"),
+    p("• Denmark ranks #1 globally in public sector digitalisation, driving efficiency and employment in tech", style = "margin-bottom: 4px;"),
+    p("• Studies show countries improving internet access see measurable gains in literacy and employment", style = "margin-bottom: 4px;")
+)
+
+```
+
+
+## Column 2 {data-height=500}
+
+### Digital Impact Matrix {data-width=1000}
+```{r digital_impact_matrix}
+renderPlotly({
+  # Create a comprehensive impact summary
+  impact_data <- full_join(
+    full_join(internet_long, employment_long, by = c("country_name", "year", "income_level")),
+    literacy_long, by = c("country_name", "year", "income_level")
+  ) %>%
+    filter(year == input$year_tab2, !is.na(internet_usage_percent)) %>%
+    mutate(
+      digital_tier = case_when(
+        internet_usage_percent >= 80 ~ "High Digital Access",
+        internet_usage_percent >= 50 ~ "Medium Digital Access",
+        internet_usage_percent >= 20 ~ "Low Digital Access",
+        TRUE ~ "Very Low Digital Access"
+      )
+    ) %>%
+    group_by(digital_tier, income_level) %>%
+    summarise(
+      countries = n(),
+      avg_employment = mean(employment_ratio, na.rm = TRUE),
+      avg_literacy = mean(literacy_rate, na.rm = TRUE),
+      avg_internet = mean(internet_usage_percent, na.rm = TRUE),
+      .groups = 'drop'
+    ) %>%
+    filter(!is.na(income_level), countries >= 3) # Only show groups with sufficient data
+  plot_ly(
+    impact_data,
+    x = ~avg_internet,
+    y = ~avg_employment,
+    size = ~countries,
+    color = ~income_level,
+    text = ~paste0("<b>", digital_tier, "</b><br>",
+               "Income Level: ", income_level, "<br>",
+               "Countries: ", countries, "<br>",
+               "Avg Internet: ", round(avg_internet, 1), "%<br>",
+               "Avg Employment: ", round(avg_employment, 1), "%<br>",
+               "Avg Literacy: ", round(avg_literacy, 1), "%"),
+    hovertemplate = "%{text}<extra></extra>",
+    type = "scatter",
+    mode = "markers",
+    marker = list(
+      sizemode = "diameter",
+      sizeref = 0.5,
+      opacity = 0.7,
+      line = list(width = 2, color = "white")
+    )
+  ) %>%
+    layout(
+  title = list(
+    text = paste0("<b>Digital Access Impact Matrix - ", input$year_tab2, "</b><br>",
+                 "<span style='font-size:12px'>Bubble size = number of countries in each category</span>"),
+    font = list(size = 14),
+    x = 0.5,
+    xanchor = "center"
+  ),
+  xaxis = list(title = "Average Internet Access (%)"),
+  yaxis = list(title = "Average Employment Rate (%)"),
+  legend = list(
+    orientation = "h",
+    x = 0.5,
+    y = 1.08,
+    xanchor = "center",
+    font = list(size = 10),
+    title = list(text = "Income Level")
+  ),
+  margin = list(l = 60, r = 20, t = 100, b = 50)  
+)
+})
+```
+
+## Column 3 {data-height=500}
+
+### The Education-Digital Nexus: A Virtuous Cycle {data-width=1000}
+```{r education_digital_nexus}
+renderPlotly({
+  # Comprehensive education-digital analysis
+  edu_digital_data <- full_join(
+    internet_long,
+    full_join(literacy_long, tertiary_long, by = c("country_name", "year", "income_level")),
+    by = c("country_name", "year", "income_level")
+  ) %>%
+    filter(year >= 2010, year <= as.numeric(input$year_tab2)) %>%
+    filter(!is.na(internet_usage_percent), !is.na(literacy_rate)) %>%
+    group_by(year) %>%
+    summarise(
+      avg_internet = mean(internet_usage_percent, na.rm = TRUE),
+      avg_literacy = mean(literacy_rate, na.rm = TRUE),
+      avg_tertiary = mean(tertiary_enrollment, na.rm = TRUE),
+      countries_with_data = n(),
+      .groups = 'drop'
+    ) %>%
+    # Calculate correlation trends
+    mutate(
+      internet_growth = (avg_internet - lag(avg_internet, 1)) / lag(avg_internet, 1) * 100,
+      literacy_growth = (avg_literacy - lag(avg_literacy, 1)) / lag(avg_literacy, 1) * 100
+    )
+  
+  # Create subplot with secondary y-axis
+  p1 <- plot_ly(edu_digital_data, x = ~year) %>%
+    add_trace(
+      y = ~avg_internet, 
+      name = "Internet Access (%)", 
+      type = "scatter", 
+      mode = "lines+markers",
+      line = list(color = "#1f77b4", width = 3),
+      marker = list(color = "#1f77b4", size = 8),
+      yaxis = "y1"
+    ) %>%
+    add_trace(
+      y = ~avg_literacy, 
+      name = "Literacy Rate (%)", 
+      type = "scatter", 
+      mode = "lines+markers",
+      line = list(color = "#ff7f0e", width = 3),
+      marker = list(color = "#ff7f0e", size = 8),
+      yaxis = "y2"
+    ) %>%
+    add_trace(
+      y = ~avg_tertiary, 
+      name = "Tertiary Education (%)", 
+      type = "scatter", 
+      mode = "lines+markers",
+      line = list(color = "#2ca02c", width = 3),
+      marker = list(color = "#2ca02c", size = 8),
+      yaxis = "y1"
+    ) %>%
+    layout(
+  title = list(
+    text = paste0("<b>The Education–Digital Nexus: Global Trends 2010-", input$year_tab2, "</b><br>",
+                  "<span style='font-size:12px'>Internet access accelerates while education provides the foundation</span>"),
+    font = list(size = 14),
+    x = 0.5,
+    xanchor = "center"
+  ),
+  xaxis = list(title = "Year", dtick = 2),
+  yaxis = list(
+    title = "Internet Access & Tertiary Education (%)",
+    side = "left",
+    range = c(0, 100)
+  ),
+  yaxis2 = list(
+    title = "Literacy Rate (%)",
+    side = "right",
+    overlaying = "y",
+    range = c(70, 90)
+  ),
+  legend = list(
+    orientation = "h",
+    x = 0.5,
+    y = 1.08,
+    xanchor = "center",
+    font = list(size = 10)
+  ),
+  margin = list(l = 60, r = 60, t = 100, b = 50)
+)
+
+  
+  p1
+})
+```
+
+# Inference & References{data-orientation=rows}
+
+**INFERENCE**
+
+**The Digital Divide Reality**
+
+* Global Internet Penetration Map: High-income countries enjoy near-universal internet access, while Sub-Saharan Africa and parts of Asia remain largely unconnected.
+
+* Digital Extremes: Who’s Connected, Who’s Left Behind?: A stark digital divide persists, with a 95+ percentage point gap between top and bottom countries in internet penetration.
+
+* Regional Progress Line Chart: Regions like East Asia & Latin America show rapid digital growth, while Sub-Saharan Africa continues to lag.
+
+**Digital Access = Economic Opportunity**
+
+* Digital Impact Matrix (Bubble Chart): High-income groups cluster in the top-right quadrant, linking greater digital access to better employment outcomes.
+
+* The Education-Digital Nexus (Line Chart): Internet access has grown significantly post-2010, while literacy and tertiary education trends remain steady but slower.
+
+**REFERENCES**
+
+* Our World in Data. (2024). Our World in Data. https://ourworldindata.org/
+* World Bank. (2023). World Bank Open Data. World Bank. https://data.worldbank.org/
+* Dux, S., & Dux, S. (2025, May 7). Norway on course for 100Mbps for all by end 2025 - Mobile Europe. Mobile Europe. https://www.mobileeurope.co.uk/norway-on-course-for-100mbps-for-all-by-end-2025/
+* Online Desk, & ET Government. (2025, April 22). Bridging Urban-Rural Digital Divide: BharatNet makes 2.18 lakh Gram Panchayats broadband-ready. ETGovernment.com; ETGovernment. https://government.economictimes.indiatimes.com/news/smart-infra/bridging-urban-rural-digital-divide-bharatnet-makes-2-18-lakh-gram-panchayats-broadband-ready/120502030
+* Rozanne. (2024, November 15). Sub-Saharan Africa remains the least connected region in the world - African Marketing Confederation. African Marketing Confederation -. https://africanmarketingconfederation.org/sub-saharan-africa-remains-the-least-connected-region-in-the-world/
+* Wray, S. (2024). Denmark ranked as the world’s top government for digitalisation. Globalgovernmentforum.com. https://www.globalgovernmentforum.com/denmark-ranked-as-the-worlds-top-government-for-digitalisation/
+* Rwanda Smart City Master Plan. (2020). Atlasofurbantech.org. https://atlasofurbantech.org/cases/rwa-smart-rwanda/
+* Ahmed, J. U., Khan, S. A., & Faroque, A. R. (2025). bKash: Transitioning from Mobile Financial Services to Digital Microfinance in Bangladesh. 121–137. https://doi.org/10.1007/978-981-96-3452-1_8
